@@ -40,7 +40,7 @@ namespace Microsoft.Azure.IoTSolutions.DeviceTelemetry.Services
 
         Task<Rule> CreateAsync(Rule rule);
 
-        Task<Rule> UpdateAsync(Rule rule);
+        Task<Rule> UpsertAsync(Rule rule);
     }
 
     public class Rules : IRules
@@ -230,7 +230,7 @@ namespace Microsoft.Azure.IoTSolutions.DeviceTelemetry.Services
             return newRule;
         }
 
-        public async Task<Rule> UpdateAsync(Rule rule)
+        public async Task<Rule> UpsertAsync(Rule rule)
         {
             if (rule == null)
             {
@@ -242,7 +242,9 @@ namespace Microsoft.Azure.IoTSolutions.DeviceTelemetry.Services
             var savedRule = await GetAsync(rule.Id);
             if (savedRule == null)
             {
-                throw new ResourceNotFoundException($"Rule {rule.Id} not found.");
+                // Following the patter of Post should create or update
+                this.log.Info("Creating a new rule for Id:", () => new { rule.Id });
+                return await CreateAsync(rule);
             }
             rule.DateCreated = savedRule.DateCreated;
             rule.DateModified = DateTimeOffset.UtcNow.ToString(DATE_FORMAT);
