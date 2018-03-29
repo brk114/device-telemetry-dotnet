@@ -239,12 +239,19 @@ namespace Microsoft.Azure.IoTSolutions.DeviceTelemetry.Services
 
             // Ensure dates are correct
             // Get the existing rule so we keep the created date correct
-            var savedRule = await GetAsync(rule.Id);
-            if (savedRule == null)
+            Rule savedRule = null; ;
+            try
             {
-                // Following the patter of Post should create or update
-                this.log.Info("Creating a new rule for Id:", () => new { rule.Id });
-                return await CreateAsync(rule);
+                savedRule = await GetAsync(rule.Id);
+            }
+            catch (Exception e)
+            {
+                if (e == null || savedRule == null)
+                {
+                    // Following the patter of Post should create or update
+                    this.log.Info("Creating a new rule for Id:", () => new { rule.Id });
+                    return await CreateAsync(rule);
+                }
             }
             rule.DateCreated = savedRule.DateCreated;
             rule.DateModified = DateTimeOffset.UtcNow.ToString(DATE_FORMAT);
