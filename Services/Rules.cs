@@ -239,7 +239,7 @@ namespace Microsoft.Azure.IoTSolutions.DeviceTelemetry.Services
 
             // Ensure dates are correct
             // Get the existing rule so we keep the created date correct
-            Rule savedRule = null; ;
+            Rule savedRule = null;
             try
             {
                 savedRule = await GetAsync(rule.Id);
