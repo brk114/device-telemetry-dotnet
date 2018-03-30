@@ -246,7 +246,7 @@ namespace Microsoft.Azure.IoTSolutions.DeviceTelemetry.Services
             }
             catch (ResourceNotFoundException e)
             {
-                // Following the patter of Post should create or update
+                // Following the pattern of Post should create or update
                 this.log.Info("Rule not found will create new rule for Id:", () => new { rule.Id, e });
             }
 
