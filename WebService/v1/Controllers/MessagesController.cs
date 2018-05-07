@@ -66,5 +66,30 @@ namespace Microsoft.Azure.IoTSolutions.DeviceTelemetry.WebService.v1.Controllers
 
             return new MessageListApiModel(messageList);
         }
+
+        [HttpGet("{id}")]
+		public MessageListApiModel GetLatest([FromRoute] string id, [FromQuery] string devices)
+		{
+			string[] deviceIds = new string[0];
+			bool flag = devices != null;
+			if (flag)
+			{
+				deviceIds = devices.Split(new char[]
+				{
+					','
+				});
+			}
+			bool flag2 = deviceIds.Length > 200;
+			if (flag2)
+			{
+				this.log.Warn("The client requested too many devices: {}", () => new
+				{
+					deviceIds.Length
+				});
+				throw new BadRequestException("The number of devices cannot exceed 200");
+			}
+			MessageList data = this.messageService.LatestPerDevice(id, deviceIds);
+			return new MessageListApiModel(data);
+		}
     }
 }

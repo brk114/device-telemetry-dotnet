@@ -1,6 +1,7 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
 using System;
+using System.Collections.Generic;
 using System.Text;
 using System.Text.RegularExpressions;
 using Microsoft.Azure.Amqp;
@@ -25,12 +26,16 @@ namespace Microsoft.Azure.IoTSolutions.DeviceTelemetry.Services.Helpers
             int skip,
             int limit,
             string[] devices,
-            string devicesProperty)
+            string devicesProperty,
+            List<string> filterProps = null,
+            List<string> filterOperations = null,
+            List<object> filterValues = null
+        )
         {
             var queryBuilder = new StringBuilder();
             queryBuilder.Append("SELECT TOP " + (skip + limit) + " * FROM c WHERE (c[`doc.schema`] = `" + schemaName + "`");
 
-            if (devices.Length > 0)
+            if (devices != null && devices.Length > 0)
             {
                 string ids = string.Join("`,`", devices);
                 queryBuilder.Append(" AND c[`" + devicesProperty + "`] IN (`" + ids + "`)");
@@ -39,6 +44,37 @@ namespace Microsoft.Azure.IoTSolutions.DeviceTelemetry.Services.Helpers
             if (byId != null)
             {
                 queryBuilder.Append(" AND c[`" + byIdPropertyName + "`] = `" + byId + "`");
+            }
+
+            if (
+                filterProps != null &&
+                filterOperations != null &&
+                filterValues != null &&
+                filterProps.Count == filterOperations.Count &&
+                filterProps.Count == filterValues.Count &&
+                filterProps.Count > 0
+            )
+            {
+                for (int i = 0; i < filterProps.Count; i++)
+                {
+                    string subQuery = string.Empty;
+                    TypeCode typeCode = Type.GetTypeCode(filterValues[i].GetType());
+                    switch (typeCode)
+                    {
+                        case TypeCode.String:
+                            subQuery = " AND c[`{0}`] {1} `{2}`";
+                            break;
+                        case TypeCode.Int32:
+                        case TypeCode.Int64:
+                        case TypeCode.Double:
+                            subQuery = " AND c[`{0}`] {1} {2}";
+                            break;
+                        default:
+                            continue;
+                    }
+
+                    queryBuilder.Append(string.Format(subQuery, filterProps[i], filterOperations[i], filterValues[i]));
+                }
             }
 
             if (from.HasValue)
@@ -76,7 +112,7 @@ namespace Microsoft.Azure.IoTSolutions.DeviceTelemetry.Services.Helpers
             string[] devices,
             string devicesProperty,
             string[] filterValues,
-            string filterProperty) 
+            string filterProperty)
         {
             var validateDeviceIds = string.Join(",", devices);
             var validateFilters = string.Join(",", filterValues);
