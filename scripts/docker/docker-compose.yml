@@ -11,7 +11,7 @@ version: "3"
 
 services:
   telemetry:
-    image: azureiotpcs/telemetry-dotnet:testing
+    image: azureiotpcs/telemetry-dotnet:v1.0.1-dev.02
     ports:
       - "9004:9004"
     environment:

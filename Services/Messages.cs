@@ -22,7 +22,7 @@ namespace Microsoft.Azure.IoTSolutions.DeviceTelemetry.Services
             int skip,
             int limit,
             string[] devices);
-        MessageList LatestPerDevice(string orderType, string[] devicesIds);
+        MessageList LatestPerDevice(string[] devicesIds);
     }
 
     public class Messages : IMessages
@@ -142,115 +142,105 @@ namespace Microsoft.Azure.IoTSolutions.DeviceTelemetry.Services
             return new MessageList(messages, new List<string>(properties));
         }
 
-        public MessageList LatestPerDevice(string orderType, string[] devicesIds)
+        public MessageList LatestPerDevice(string[] devicesIds)
         {
-            bool isLatest = !string.Equals(orderType, "latest", StringComparison.OrdinalIgnoreCase);
-            MessageList result;
-            if (isLatest)
-            {
-                result = new MessageList();
-            }
-            else
-            {
-                List<Message> messages = new List<Message>();
-                HashSet<string> properties = new HashSet<string>();
-                int dataPrefixLen = DATA_PREFIX.Length; 
-                string deviceIdProperty =  "device.id";
-                int skip = 0;
-                int limit = 1;
-                string order = "desc";
-                string orderProperty = "data.DateTimeEpoc";
-                var filterProps = new List<string>() { "data.Latitude", "data.Longitude" };
-                var filterOperations = new List<string>() { "!=", "!=" };
-                var filterValues =  new List<object>() { 0, 0 };
+            List<Message> messages = new List<Message>();
+            HashSet<string> properties = new HashSet<string>();
+            int dataPrefixLen = DATA_PREFIX.Length;
+            string deviceIdProperty = "device.id";
+            int skip = 0;
+            int limit = 1;
+            string order = "desc";
+            string orderProperty = "data.DateTimeEpoc";
+            var filterProps = new List<string>() { "data.Latitude", "data.Longitude" };
+            var filterOperations = new List<string>() { "!=", "!=" };
+            var filterValues = new List<object>() { 0, 0 };
 
-                FeedOptions queryOptions = new FeedOptions();
-                queryOptions.EnableCrossPartitionQuery = true;
-                queryOptions.EnableScanInQuery = true;
+            FeedOptions queryOptions = new FeedOptions();
+            queryOptions.EnableCrossPartitionQuery = true;
+            queryOptions.EnableScanInQuery = false;
 
-                for (int i = 0; i < devicesIds.Length; i++)
+            for (int i = 0; i < devicesIds.Length; i++)
+            {
+                string sql = QueryBuilder.GetDocumentsSql(
+                    "d2cmessage",               // message schema name
+                    devicesIds[i],              // deviceId value 
+                    deviceIdProperty,           // deviceId property
+                    null,                       // from Value
+                    null,                       // from Property
+                    null,                       // to value 
+                    null,                       // to property
+                    order,                      // order type asc/desc 
+                    orderProperty,              // orderby property    
+                    skip,                       // skip records count
+                    limit,                      // limit records count
+                    new string[0],              // deviceIds array
+                    null,                       // deviceId property 
+                    filterProps,                // Query filter properties 
+                    filterOperations,           // Query filter operations
+                    filterValues                // Query filter property values
+                );
+
+                this.log.Debug("Created Message Query", () => new { sql });
+
+                List<Document> docs = this.storageClient.QueryDocuments(
+                    this.databaseName,
+                    this.collectionId,
+                    queryOptions,
+                    sql,
+                    skip,
+                    limit
+                );
+
+                foreach (Document doc in docs)
                 {
-                    string sql = QueryBuilder.GetDocumentsSql(
-                        "d2cmessage",               // message schema name
-                        devicesIds[i],              // deviceId value 
-                        deviceIdProperty,           // deviceId property
-                        null,                       // from Value
-                        null,                       // from Property
-                        null,                       // to value 
-                        null,                       // to property
-                        order,                      // order type asc/desc 
-                        orderProperty,              // orderby property    
-                        skip,                       // skip records count
-                        limit,                      // limit records count
-                        new string[0],              // deviceIds array
-                        null,                       // deviceId property 
-                        filterProps,                // Query filter properties 
-                        filterOperations,           // Query filter operations
-                        filterValues                // Query filter property values
-                    );
+                    // Document fields to expose
+                    JObject data = new JObject();
 
-                    this.log.Debug("Created Message Query", () => new { sql });
+                    // Extract all the telemetry data and types
+                    var jsonDoc = JObject.Parse(doc.ToString());
 
-                    List<Document> docs = this.storageClient.QueryDocuments(
-                        this.databaseName,
-                        this.collectionId,
-                        queryOptions,
-                        sql,
-                        skip,
-                        limit
-                    );
+                    string dataSchema = jsonDoc.GetValue(DATA_SCHEMA_TYPE)?.ToString();
+                    SchemaType schemaType;
+                    Enum.TryParse(dataSchema, true, out schemaType);
 
-                    foreach (Document doc in docs)
+                    switch (schemaType)
                     {
-                        // Document fields to expose
-                        JObject data = new JObject();
-
-                        // Extract all the telemetry data and types
-                        var jsonDoc = JObject.Parse(doc.ToString());
-
-                        string dataSchema = jsonDoc.GetValue(DATA_SCHEMA_TYPE)?.ToString();
-                        SchemaType schemaType;
-                        Enum.TryParse(dataSchema, true, out schemaType);
-
-                        switch (schemaType)
-                        {
-                            // Process messages output by streaming jobs
-                            case SchemaType.StreamingJobs:
-                                data = (JObject)jsonDoc.GetValue(DATA_PROPERTY_NAME);
-                                if (data != null)
+                        // Process messages output by streaming jobs
+                        case SchemaType.StreamingJobs:
+                            data = (JObject)jsonDoc.GetValue(DATA_PROPERTY_NAME);
+                            if (data != null)
+                            {
+                                // Filter PartitionId property sometimes generated by ASA query by default
+                                properties.UnionWith(data.Properties()
+                                    .Where(p => !p.Name.Equals(DATA_PARTITION_ID, StringComparison.OrdinalIgnoreCase))
+                                    .Select(p => p.Name));
+                            };
+                            break;
+                        // Process messages output by telemetry agent
+                        default:
+                            foreach (var item in jsonDoc)
+                            {
+                                // Ignore fields that don't start with "data."
+                                if (item.Key.StartsWith(DATA_PREFIX))
                                 {
-                                    // Filter PartitionId property sometimes generated by ASA query by default
-                                    properties.UnionWith(data.Properties()
-                                        .Where(p => !p.Name.Equals(DATA_PARTITION_ID, StringComparison.OrdinalIgnoreCase))
-                                        .Select(p => p.Name));
-                                };
-                                break;
-                            // Process messages output by telemetry agent
-                            default:
-                                foreach (var item in jsonDoc)
-                                {
-                                    // Ignore fields that don't start with "data."
-                                    if (item.Key.StartsWith(DATA_PREFIX))
-                                    {
-                                        // Remove the "data." prefix
-                                        string key = item.Key.ToString().Substring(dataPrefixLen);
-                                        data.Add(key, item.Value);
+                                    // Remove the "data." prefix
+                                    string key = item.Key.ToString().Substring(dataPrefixLen);
+                                    data.Add(key, item.Value);
 
-                                        // Telemetry types auto-discovery magic through union of all keys
-                                        properties.Add(key);
-                                    }
+                                    // Telemetry types auto-discovery magic through union of all keys
+                                    properties.Add(key);
                                 }
-                                break;
-                        }
-                        messages.Add(new Message(
-                            doc.GetPropertyValue<string>("device.id"),
-                            doc.GetPropertyValue<long>("device.msg.received"),
-                            data));
+                            }
+                            break;
                     }
+                    messages.Add(new Message(
+                        doc.GetPropertyValue<string>("device.id"),
+                        doc.GetPropertyValue<long>("device.msg.received"),
+                        data));
                 }
-                result = new MessageList(messages, new List<string>(properties));
             }
-            return result;
+            return new MessageList(messages, new List<string>(properties));
         }
     }
 }
